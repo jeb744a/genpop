@@ -1,0 +1,44 @@
+# Hourly news threshold ingest (REBUILD_PLAN §9 / SPEC_news_threshold.md §6.1)
+# Vercel Hobby cron is daily-only with 2 jobs — use Actions for hourly hits.
+#
+# Required GitHub repo secrets:
+#   CRON_SECRET  — same value as Vercel / .env.local CRON_SECRET
+#   APP_URL      — production origin, e.g. https://genpop.vercel.app  (no trailing slash)
+#
+# Before this does anything useful: the app must be deployed to a public URL
+# with /api/ingest/news live and env vars set (Supabase, CRON_SECRET, GEMINI_API_KEY, etc.).
+
+name: News ingest (hourly)
+
+on:
+  schedule:
+    - cron: '5 * * * *' # :05 past every hour (UTC)
+  workflow_dispatch: {}
+
+jobs:
+  ingest-news:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Hit /api/ingest/news
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ] || [ -z "${APP_URL:-}" ]; then
+            echo "Missing secrets.CRON_SECRET or secrets.APP_URL"
+            exit 1
+          fi
+          url="${APP_URL%/}/api/ingest/news"
+          echo "POST/GET $url"
+          code=$(curl -sS -o /tmp/news-ingest.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Accept: application/json" \
+            "$url")
+          echo "HTTP $code"
+          cat /tmp/news-ingest.json
+          echo
+          if [ "$code" != "200" ]; then
+            exit 1
+          fi

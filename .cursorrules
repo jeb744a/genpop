@@ -1,0 +1,124 @@
+# GenPop v2 — Cursor rules
+# Place at repo root as `.cursorrules` (or `.cursor/rules/genpop.mdc`).
+# Encodes decisions from REBUILD_PLAN.md. Do not contradict them.
+# Where the original PDF and REBUILD_PLAN.md disagree, REBUILD_PLAN.md wins.
+
+## Strategic invariants (REBUILD_PLAN §0)
+- GenPop is consumption-first. The core wedge is the COMPLETE, NEUTRAL,
+  PLAIN-LANGUAGE RECORD OF GOVERNMENT ACTION (legislative + executive +
+  judicial). Build that first. It must be useful with zero users.
+- Two tiers, both live: FREE read-only sees EVERYTHING (all cards, explainers,
+  news, consensus, all discussion); VERIFIED unlocks participation (react +
+  discuss). The wall is around WRITING, never READING. Never hide readable
+  content behind verification to drive conversions.
+- Verification launches FREE (founder window). The $5 fee turns on at a
+  pre-decided trigger, not at launch. Do not build fee payment at launch.
+- Positioning headline is BOT-FREE VERIFIED HUMANITY, not nationality. US-ID is
+  a launch scope, not an identity claim. Never market "American citizens only"
+  (ID proves real-person/residency, not citizenship, and reads as partisan).
+- Avoid the phrase "free thinkers" in copy; use "form your own opinions" /
+  "informed by sources, not influencers."
+- Claim only the completeness actually delivered (REBUILD_PLAN §3a). Federal =
+  complete, all 3 branches. State = legislation (all 50) at launch; state
+  exec/judicial rolling — show a coverage-status surface, never fake completeness.
+
+## Product invariants (PDF + REBUILD_PLAN §4a, §5, §6)
+- GenPop is politics-only. Discussion exists in two places: attached to cards
+  (takes) and the standalone Forum (posts). Forum posts are kept political by
+  a Gemini relevance + moderation gate at publish time — NEVER by offering
+  topic tags for non-political content (no sports/culture/entertainment
+  categories, ever). Borderline posts publish with status='reduced', not
+  hard-rejected.
+- Forum has exactly three feed modes: Latest (pure reverse-chron, no
+  algorithm), Trending (cron-computed hot score), For You (relevance).
+- RELEVANCE RANKING HARD RULE: personalize on engagement, never on belief.
+  Allowed signals: per-topic engagement volume (user_topic_affinity), region
+  match, sector match, recency, global quality (net votes / hide rate).
+  Forbidden signals: direction/stance of any reaction or vote, inferred
+  ideology, agreement-likelihood, standing, collaborative filtering on
+  opinion. Never compute or store stance-based user similarity.
+- NO standing/karma/ranking system at launch. It's cut. Never compute, store,
+  or display a user-quality score, and never use one as a ranking input.
+- AI Insight is the reputation-bearing front door — build it as CONSTRAINED
+  EXTRACTION, not freeform summary: a fixed slot schema (what changes / from→to
+  / who's affected / dates / sunset / cost / source section), objective
+  statutory register (no evaluative adjectives), source text rendered ALONGSIDE
+  the summary, per-claim provenance, temperature ~0, and a correction log.
+  Never let the AI be the only thing between the user and the source document.
+- The GenPop Report (weekly digest) carries the brand's neutrality publicly:
+  same extraction/provenance/correction discipline as AI Insight. Its
+  government-action half must work with zero users; the citizen-opinion half is
+  added only once the verified base makes the numbers meaningful.
+- Anonymity by design: never surface real names, emails, photos, follower
+  counts, or persistent public handles. Users get deterministic daily
+  anonymous display names and ordinal labels (#1, #1a) within threads.
+- Standing is HIDDEN by default (tap/hover to reveal) and must NEVER be an
+  input to comment ranking. Ranking uses votes/engagement only.
+- Never store PII: document numbers are stored only as
+  HMAC-SHA256(doc#, NULLIFIER_SALT). No plaintext IDs, DOBs, or addresses.
+  Demographics are bucketed (age cohort, region, income bracket) only.
+- Live news cards must follow the threshold rule: a story becomes a card only
+  when it clears N cross-spectrum outlets in a time window, and the audit
+  trail (outlets + timestamp) is stored on the card. No editorial overrides.
+
+## Architecture invariants
+- ONE auth funnel: /onboarding (email → handle → Didit verify → optional
+  demographics). No auth modals, no second login path, no anonymous-session
+  signup flow.
+- Reads are public; WRITES are gated. Enforce write-gating in RLS via
+  public.is_verified() — never with a client-side wrapper component.
+- The feed reads exclusively from the `cards` table. Never call upstream APIs
+  (Congress.gov, Federal Register, CourtListener, news) at request time;
+  ingestion happens only in /api/ingest/* cron routes that upsert into `cards`
+  keyed on (source, external_id).
+- NO mock data layers. If a data source isn't built yet, the feature waits.
+  Never create app/mocks, lib/mock, isMockFeedId, or seeded fake threads.
+- AI provider is Gemini only (@google/generative-ai, gemini-2.5-flash). All AI
+  output is cached in `card_ai` with an input hash; check cache before
+  generating.
+- Jobs: Vercel Cron → idempotent route handlers using the `job_log` table for
+  dedup. No BullMQ, no Redis, no queues unless REBUILD_PLAN.md is updated.
+- Database changes go through Supabase CLI migrations (supabase/migrations/).
+  Never hand users loose SQL files to run manually.
+- Points balances are derived (SUM of points_ledger.delta). Never store a
+  balance column.
+- Every new table gets RLS enabled with explicit policies before any code
+  reads it. Default deny.
+
+## Code conventions
+- Next.js App Router + TypeScript strict. Server components by default;
+  'use client' only where interactivity requires it.
+- Route handlers under app/api/** are thin: validate → call a lib/ service →
+  respond. Business logic lives in app/lib/.
+- One Card component with per-type render branches (legislative / executive /
+  judicial / live). Don't fork into parallel card components.
+- Valid reaction responses per card type come from app/lib/reactionConfig.ts —
+  the single source of truth shared by UI and API validation:
+    legislative: yes | needs_amendment | no
+    executive:   right_call | needs_clarification | wrong_call
+    judicial:    fair | too_early | unfair
+    live:        under_control | developing | out_of_control
+- Take/comment length: 70–280 chars; forum posts 1–280 chars. Enforced in DB
+  check constraints AND shared client validation. Keep them in sync.
+- One fixed policy-topic taxonomy, defined once in app/lib/topics.ts, applied
+  to both cards (at ingestion) and posts (at publish). Never invent ad-hoc
+  topic strings; Gemini classification prompts must constrain output to this
+  list.
+- Theme: CSS custom properties ("Civic Slate" tokens) with data-theme
+  attribute. Use tokens (--civic-primary, --text-1, --border-subtle); never
+  hardcode colors in components.
+- Secrets only via env. Cron routes require CRON_SECRET. Didit webhook must
+  verify HMAC signature (x-signature-v2) with a timestamp freshness window
+  and crypto.timingSafeEqual.
+- Add an /api/health route asserting required env presence + DB connectivity;
+  extend it when adding new required envs.
+
+## Phase discipline
+- Build in the order defined in REBUILD_PLAN.md §8: government-action record →
+  AI Insight → news feed → Report v1 (these four are the free consumption
+  product) → identity → reactions → discussion → forum → polish → hardening.
+- Phases 1–4 must be a shippable consumption product BEFORE identity is built.
+  Do not pull verification/participation work earlier.
+- Do not scaffold empty directories or stub features from later phases. Deferred
+  tables (points_ledger, surveys, B2B, delegations) are created in later
+  migrations, not now. No standing/karma table, ever, at launch.

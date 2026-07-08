@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+/* ── Civic Slate design tokens ─────────────────────────────────────── */
+
+[data-theme="light"] {
+  --color-bg:             #f4f5f7;
+  --color-surface:        #ffffff;
+  --color-text-primary:   #1a1f2e;
+  --color-text-secondary: #5a6272;
+  --color-border-subtle:  #d8dce5;
+  --color-accent:         #2563eb; /* blue-600 */
+
+  /* Status badge foreground colors */
+  --status-enacted:  #15803d;
+  --status-passed:   #1d4ed8;
+  --status-chamber:  #b45309;
+  --status-vetoed:   #b91c1c;
+  --status-failed:   #4b5563;
+  --status-pending:  #7e22ce;
+  --status-decided:  #0e7490;
+  --status-default:  #4b5563;
+
+  /* Card type badge */
+  --badge-legislative-bg:   #dbeafe;
+  --badge-legislative-text: #1e40af;
+  --badge-executive-bg:     #ede9fe;
+  --badge-executive-text:   #5b21b6;
+  --badge-judicial-bg:      #dcfce7;
+  --badge-judicial-text:    #166534;
+  --badge-live-bg:          #fef3c7;
+  --badge-live-text:        #92400e;
+}
+
+[data-theme="dark"] {
+  --color-bg:             #0f1117;
+  --color-surface:        #1a1f2e;
+  --color-text-primary:   #e8eaf0;
+  --color-text-secondary: #8b93a7;
+  --color-border-subtle:  #2a3045;
+  --color-accent:         #3b82f6; /* blue-500 — slightly lighter for dark bg */
+
+  /* Status badge foreground colors */
+  --status-enacted:  #4ade80;
+  --status-passed:   #60a5fa;
+  --status-chamber:  #fbbf24;
+  --status-vetoed:   #f87171;
+  --status-failed:   #9ca3af;
+  --status-pending:  #c084fc;
+  --status-decided:  #22d3ee;
+  --status-default:  #9ca3af;
+
+  /* Card type badge */
+  --badge-legislative-bg:   #1e3a5f;
+  --badge-legislative-text: #93c5fd;
+  --badge-executive-bg:     #2e1065;
+  --badge-executive-text:   #c4b5fd;
+  --badge-judicial-bg:      #14532d;
+  --badge-judicial-text:    #86efac;
+  --badge-live-bg:          #78350f;
+  --badge-live-text:        #fde68a;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.card-article {
+  transition: border-color 0.15s;
+}
+.card-article:hover {
+  border-color: var(--color-accent) !important;
+}
