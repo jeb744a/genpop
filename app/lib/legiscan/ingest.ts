@@ -17,9 +17,21 @@ const STATES = [
 // Small courtesy delay between API calls — LegiScan is unmetered per-request
 // but has a 30k/month budget; this keeps burst load low.
 const CALL_DELAY_MS = 250
+/** Soft stop before Hobby's 300s function ceiling (states route maxDuration). */
+const WALL_CLOCK_BUDGET_MS = 270_000
+/** 4 shards × 6h cadence → each state once/day; keeps catch-up under maxDuration. */
+const SHARD_COUNT = 4
 
 function currentIsoHour(): string {
   return new Date().toISOString().slice(0, 13)
+}
+
+function currentShard(now = new Date()): number {
+  return Math.floor(now.getUTCHours() / 6) % SHARD_COUNT
+}
+
+function statesForShard(shard: number): string[] {
+  return STATES.filter((_, i) => i % SHARD_COUNT === shard)
 }
 
 async function delay(ms: number) {
@@ -124,12 +136,17 @@ async function processState(
 }
 
 export async function runLegiscanIngest(): Promise<LegiscanIngestResult> {
+  const started = Date.now()
   const supabase = createAdminClient()
-  const jobKey = `${JOB_PREFIX}${currentIsoHour()}`
+  const shard = currentShard()
+  const planned = statesForShard(shard)
+  // Include shard so re-runs of the same hour don't collide across manual triggers,
+  // and so each 6h window's shard is independently idempotent.
+  const jobKey = `${JOB_PREFIX}${currentIsoHour()}:s${shard}`
 
   const { error: insertError } = await supabase
     .from('job_log')
-    .insert({ job_key: jobKey, status: 'running', detail: {} })
+    .insert({ job_key: jobKey, status: 'running', detail: { shard, states_planned: planned } })
 
   if (insertError) {
     if (insertError.code === '23505') {
@@ -138,10 +155,16 @@ export async function runLegiscanIngest(): Promise<LegiscanIngestResult> {
         .select('status')
         .eq('job_key', jobKey)
         .single()
-      if (existing?.status === 'done') return { skipped: true, written: 0, skippedBills: 0, states: 0 }
+      if (existing?.status === 'done') {
+        return { skipped: true, written: 0, skippedBills: 0, states: 0, shard }
+      }
       await supabase
         .from('job_log')
-        .update({ status: 'running', detail: {}, ran_at: new Date().toISOString() })
+        .update({
+          status: 'running',
+          detail: { shard, states_planned: planned },
+          ran_at: new Date().toISOString(),
+        })
         .eq('job_key', jobKey)
     } else {
       throw new Error(`Failed to claim job_log slot: ${insertError.message}`)
@@ -151,17 +174,29 @@ export async function runLegiscanIngest(): Promise<LegiscanIngestResult> {
   let totalWritten = 0
   let totalSkipped = 0
   let failedStates = 0
+  let statesDone = 0
+  let truncated = false
+  const statesCompleted: string[] = []
 
   try {
-    for (const state of STATES) {
+    for (const state of planned) {
+      if (Date.now() - started > WALL_CLOCK_BUDGET_MS) {
+        truncated = true
+        console.warn(`[legiscan] wall-clock budget hit after ${statesDone}/${planned.length} states (shard ${shard})`)
+        break
+      }
       try {
         const result = await processState(state, supabase)
         totalWritten += result.written
         totalSkipped += result.skipped
         failedStates += result.failed > 0 ? 1 : 0
+        statesDone++
+        statesCompleted.push(state)
       } catch (err) {
         console.warn(`[legiscan] failed state ${state}:`, err instanceof Error ? err.message : err)
         failedStates++
+        statesDone++
+        statesCompleted.push(state)
       }
     }
 
@@ -173,14 +208,18 @@ export async function runLegiscanIngest(): Promise<LegiscanIngestResult> {
           written: totalWritten,
           skippedBills: totalSkipped,
           failedStates,
-          states: STATES.length,
+          states: statesDone,
+          states_planned: planned.length,
+          shard,
+          states_completed: statesCompleted,
+          ...(truncated ? { truncated: true } : {}),
         },
       })
       .eq('job_key', jobKey)
   } catch (err) {
     await supabase
       .from('job_log')
-      .update({ status: 'failed', detail: { error: String(err) } })
+      .update({ status: 'failed', detail: { error: String(err), shard } })
       .eq('job_key', jobKey)
     throw err
   }
@@ -188,6 +227,9 @@ export async function runLegiscanIngest(): Promise<LegiscanIngestResult> {
   return {
     written: totalWritten,
     skippedBills: totalSkipped,
-    states: STATES.length - failedStates,
+    states: statesDone,
+    shard,
+    states_planned: planned.length,
+    truncated,
   }
 }

@@ -67,4 +67,7 @@ export interface LegiscanIngestResult {
   written: number
   skippedBills: number
   states: number
+  shard?: number
+  states_planned?: number
+  truncated?: boolean
 }
