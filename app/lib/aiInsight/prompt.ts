@@ -34,7 +34,9 @@ HARD RULES:
    exist, set value to a JSON string encoding an array of objects with "from" and
    "to" keys. Otherwise use the exact string "Not specified in the source".
 7. Omit optional slots entirely when the source lacks the information (do not include
-   the key). Required slots must always be present.`
+   the key). Required slots must always be present.
+8. In meta.source_text, output ONLY the acquisition status token "available",
+   "unavailable", or "pending" — never paste bill text or metadata into meta.`
 
 const LEGISLATIVE_SLOT_SCHEMA = {
   what_it_does: { required: true, description: '1–2 neutral sentences: the action the bill takes' },
@@ -140,7 +142,11 @@ export function responseSchemaForCard(card: CardDetail): ResponseSchema {
       meta: {
         type: SchemaType.OBJECT,
         properties: {
-          source_text: { type: SchemaType.STRING },
+          source_text: {
+            type: SchemaType.STRING,
+            format: 'enum',
+            enum: ['available', 'unavailable', 'pending'],
+          },
           model: { type: SchemaType.STRING },
           prompt_version: { type: SchemaType.STRING },
         },

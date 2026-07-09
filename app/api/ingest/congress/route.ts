@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { runCongressIngest } from '@/app/lib/congress/ingest'
 
+export const maxDuration = 60
+
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET
   if (!secret) {

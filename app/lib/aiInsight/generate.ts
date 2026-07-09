@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { FinishReason, GoogleGenerativeAI } from '@google/generative-ai'
 import { createAdminClient } from '@/app/lib/supabase/admin'
 import type { CardDetail } from '@/app/lib/cards/types'
 import { ensureBillText } from '@/app/lib/billText/acquire'
@@ -19,6 +19,21 @@ import { buildMetadataOnlyLegislativeInsight, buildPendingJudicialInsight, valid
 const DAILY_INSIGHT_CAP = 150
 const BUDGET_FEATURE = 'insight'
 const MAX_429_RETRY_WAIT_MS = 15_000
+const MAX_OUTPUT_TOKENS_DEFAULT = 2048
+/** Legislative cards with bill text + full slot schema + snippets need more room. */
+const MAX_OUTPUT_TOKENS_LEGISLATIVE = 4096
+
+function maxOutputTokensForCard(card: CardDetail): number {
+  return card.card_type === 'legislative' ? MAX_OUTPUT_TOKENS_LEGISLATIVE : MAX_OUTPUT_TOKENS_DEFAULT
+}
+
+function responseFinishReason(response: { candidates?: Array<{ finishReason?: FinishReason }> }): FinishReason | undefined {
+  return response.candidates?.[0]?.finishReason
+}
+
+function isTruncatedGeminiResponse(response: { candidates?: Array<{ finishReason?: FinishReason }> }): boolean {
+  return responseFinishReason(response) === FinishReason.MAX_TOKENS
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -148,7 +163,7 @@ async function callGemini(card: CardDetail, acquired: AcquiredText): Promise<Ins
       topP: 1,
       topK: 1,
       candidateCount: 1,
-      maxOutputTokens: 2048,
+      maxOutputTokens: maxOutputTokensForCard(card),
       responseMimeType: 'application/json',
       responseSchema: responseSchemaForCard(card),
     },
@@ -158,12 +173,28 @@ async function callGemini(card: CardDetail, acquired: AcquiredText): Promise<Ins
 
   const attempt = async (): Promise<InsightContent> => {
     const result = await model.generateContent(userPrompt)
-    const text = result.response.text()
+    const response = result.response
+
+    if (isTruncatedGeminiResponse(response)) {
+      throw new Error('Gemini response truncated (finishReason=MAX_TOKENS)')
+    }
+
+    const text = response.text()
     if (!text) {
       throw new Error('Empty response from Gemini')
     }
 
-    const parsed = JSON.parse(text) as unknown
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch (err) {
+      const reason = responseFinishReason(response)
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new Error(
+        `Malformed Insight JSON from Gemini${reason ? ` (finishReason=${reason})` : ''}: ${detail}`
+      )
+    }
+
     const validated = validateInsightContent(parsed, card, acquired.status)
     if (!validated) {
       throw new Error('Invalid Insight JSON from Gemini')

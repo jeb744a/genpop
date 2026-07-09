@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { runNewsIngest } from '@/app/lib/news/ingest'
 
-export const maxDuration = 60
+/** Hobby fluid-compute ceiling is 300s; leave headroom via WALL_CLOCK_BUDGET_MS. */
+export const maxDuration = 300
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET

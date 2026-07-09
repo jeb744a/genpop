@@ -24,7 +24,8 @@ export const MAX_ITEMS_PER_FEED = 50
 export const MAX_REDIRECT_RESOLUTIONS = 25
 export const MAX_PROMOTIONS_PER_RUN = 10
 export const FETCH_TIMEOUT_MS = 10_000
-export const WALL_CLOCK_BUDGET_MS = 60_000
+/** Soft stop before Hobby's 300s function ceiling (see news route maxDuration). */
+export const WALL_CLOCK_BUDGET_MS = 270_000
 export const JITTER_MIN_MS = 100
 export const JITTER_MAX_MS = 500
 export const CONSECUTIVE_FAIL_ALARM = 3

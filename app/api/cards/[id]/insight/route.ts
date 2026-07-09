@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getInsightForCard } from '@/app/lib/aiInsight/service'
 
+export const maxDuration = 60
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }

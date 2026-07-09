@@ -3,6 +3,8 @@ import { createAdminClient } from '@/app/lib/supabase/admin'
 import { validateBillTextForCard } from '@/app/lib/billText/acquire'
 import type { CardDetail } from '@/app/lib/cards/types'
 
+export const maxDuration = 60
+
 const HARNESS_SPACING_MS = 7_000
 
 function harnessDelay(): Promise<void> {

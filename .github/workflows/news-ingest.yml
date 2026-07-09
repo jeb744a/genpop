@@ -18,7 +18,7 @@ on:
 jobs:
   ingest-news:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 7
     steps:
       - name: Hit /api/ingest/news
         env:
@@ -31,8 +31,8 @@ jobs:
             exit 1
           fi
           url="${APP_URL%/}/api/ingest/news"
-          echo "POST/GET $url"
-          code=$(curl -sS -o /tmp/news-ingest.json -w '%{http_code}' \
+          echo "GET $url"
+          code=$(curl -sS --max-time 320 -o /tmp/news-ingest.json -w '%{http_code}' \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             -H "Accept: application/json" \
             "$url")
