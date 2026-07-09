@@ -1,0 +1,37 @@
+# Hourly CourtListener ingest (SPEC_courtlistener.md §3 — cadence hourly).
+# Free-tier pacing is enforced in app code (5/min). Required secrets: CRON_SECRET, APP_URL.
+
+name: Courts ingest (hourly)
+
+on:
+  schedule:
+    - cron: '20 * * * *' # :20 past every hour (UTC)
+  workflow_dispatch: {}
+
+jobs:
+  ingest-courts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Hit /api/ingest/courts
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ] || [ -z "${APP_URL:-}" ]; then
+            echo "Missing secrets.CRON_SECRET or secrets.APP_URL"
+            exit 1
+          fi
+          url="${APP_URL%/}/api/ingest/courts"
+          echo "GET $url"
+          code=$(curl -sS --max-time 320 -o /tmp/courts-ingest.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Accept: application/json" \
+            "$url")
+          echo "HTTP $code"
+          cat /tmp/courts-ingest.json
+          echo
+          if [ "$code" != "200" ]; then
+            exit 1
+          fi

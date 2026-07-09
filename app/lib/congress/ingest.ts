@@ -16,6 +16,7 @@ async function getWatermark(supabase: ReturnType<typeof createAdminClient>): Pro
     .from('job_log')
     .select('detail')
     .like('job_key', `${JOB_PREFIX}%`)
+    .eq('status', 'done')
     .order('ran_at', { ascending: false })
     .limit(1)
     .maybeSingle()

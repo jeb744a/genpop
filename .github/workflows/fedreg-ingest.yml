@@ -1,0 +1,37 @@
+# Hourly Federal Register ingest (SPEC_fedreg.md §3 — cadence hourly).
+# Required secrets: CRON_SECRET, APP_URL (same as news-ingest.yml).
+
+name: FedReg ingest (hourly)
+
+on:
+  schedule:
+    - cron: '15 * * * *' # :15 past every hour (UTC)
+  workflow_dispatch: {}
+
+jobs:
+  ingest-fedreg:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Hit /api/ingest/fedreg
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ] || [ -z "${APP_URL:-}" ]; then
+            echo "Missing secrets.CRON_SECRET or secrets.APP_URL"
+            exit 1
+          fi
+          url="${APP_URL%/}/api/ingest/fedreg"
+          echo "GET $url"
+          code=$(curl -sS --max-time 150 -o /tmp/fedreg-ingest.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Accept: application/json" \
+            "$url")
+          echo "HTTP $code"
+          cat /tmp/fedreg-ingest.json
+          echo
+          if [ "$code" != "200" ]; then
+            exit 1
+          fi

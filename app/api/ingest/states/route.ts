@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import { runLegiscanIngest } from '@/app/lib/legiscan/ingest'
 
-export const maxDuration = 60
+/**
+ * 50-state LegiScan sweep with per-call delays; needs the full Hobby 300s.
+ * Cadence is every 6h (not hourly) per SPEC_state.md budget.
+ */
+export const maxDuration = 300
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET

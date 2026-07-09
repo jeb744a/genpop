@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import { runCourtsIngest } from '@/app/lib/courts/ingest'
 
-export const maxDuration = 60
+/**
+ * Free-tier CourtListener pacing is ~13s/request (5/min). Up to 20 pages needs
+ * several minutes — use Hobby's full 300s ceiling.
+ */
+export const maxDuration = 300
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET

@@ -1,0 +1,38 @@
+# State legislation ingest via LegiScan (SPEC_state.md §3/§5).
+# Cadence every 6 hours — NOT hourly (30k/mo LegiScan budget).
+# Required secrets: CRON_SECRET, APP_URL (same as news-ingest.yml).
+
+name: States ingest (every 6h)
+
+on:
+  schedule:
+    - cron: '30 */6 * * *' # :30 past every 6th hour (UTC)
+  workflow_dispatch: {}
+
+jobs:
+  ingest-states:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Hit /api/ingest/states
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ] || [ -z "${APP_URL:-}" ]; then
+            echo "Missing secrets.CRON_SECRET or secrets.APP_URL"
+            exit 1
+          fi
+          url="${APP_URL%/}/api/ingest/states"
+          echo "GET $url"
+          code=$(curl -sS --max-time 320 -o /tmp/states-ingest.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Accept: application/json" \
+            "$url")
+          echo "HTTP $code"
+          cat /tmp/states-ingest.json
+          echo
+          if [ "$code" != "200" ]; then
+            exit 1
+          fi

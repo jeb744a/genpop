@@ -1,0 +1,37 @@
+# Hourly Congress.gov ingest (SPEC_congress.md §3 — cadence hourly).
+# Required secrets: CRON_SECRET, APP_URL (same as news-ingest.yml).
+
+name: Congress ingest (hourly)
+
+on:
+  schedule:
+    - cron: '10 * * * *' # :10 past every hour (UTC)
+  workflow_dispatch: {}
+
+jobs:
+  ingest-congress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Hit /api/ingest/congress
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ] || [ -z "${APP_URL:-}" ]; then
+            echo "Missing secrets.CRON_SECRET or secrets.APP_URL"
+            exit 1
+          fi
+          url="${APP_URL%/}/api/ingest/congress"
+          echo "GET $url"
+          code=$(curl -sS --max-time 320 -o /tmp/congress-ingest.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Accept: application/json" \
+            "$url")
+          echo "HTTP $code"
+          cat /tmp/congress-ingest.json
+          echo
+          if [ "$code" != "200" ]; then
+            exit 1
+          fi

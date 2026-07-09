@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { runFedRegIngest } from '@/app/lib/fedreg/ingest'
 
-export const maxDuration = 60
+/** Presidential-doc volume is small; 120s is ample with headroom under Hobby 300s. */
+export const maxDuration = 120
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET

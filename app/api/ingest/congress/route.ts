@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { runCongressIngest } from '@/app/lib/congress/ingest'
 
-export const maxDuration = 60
+/** Hourly catch-up can page many bills (3 API calls each); Hobby ceiling 300s. */
+export const maxDuration = 300
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET

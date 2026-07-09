@@ -1,14 +1,16 @@
 import { createAdminClient } from '@/app/lib/supabase/admin'
-import { buildDocketListUrl, fetchDocketPage } from './api'
+import { buildDocketListUrl, CL_MIN_INTERVAL_MS, fetchDocketPage } from './api'
 import { mapToCard } from './transform'
 import type { CourtsIngestResult } from './types'
 
 const JOB_PREFIX = 'ingest:courts:'
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
-// EDU CL accounts: 20 req/min, 1,000 req/hr.
-// 3 s between pages stays comfortably under the per-minute cap.
-const PAGE_DELAY_MS = 3_000
-const MAX_PAGES = 200
+/**
+ * Free-tier CourtListener: 5 req/min, 50/hr, 125/day (SPEC / DATA_SOURCES).
+ * Cap pages so one hourly run cannot exhaust the hour budget even on catch-up.
+ * With 13s pacing, 20 pages ≈ 4+ minutes — fits maxDuration=300 with headroom.
+ */
+const MAX_PAGES = 20
 
 function currentIsoHour(): string {
   return new Date().toISOString().slice(0, 13)
@@ -19,10 +21,13 @@ function subtractHours(iso: string, hours: number): string {
 }
 
 async function getWatermark(supabase: ReturnType<typeof createAdminClient>): Promise<string> {
+  // Only advance from successful runs — failed/running rows have no usable watermark
+  // and must not reset us to a 7-day catch-up that burns the free-tier quota.
   const { data } = await supabase
     .from('job_log')
     .select('detail')
     .like('job_key', `${JOB_PREFIX}%`)
+    .eq('status', 'done')
     .order('ran_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -66,10 +71,11 @@ export async function runCourtsIngest(): Promise<CourtsIngestResult> {
   let maxDateModified = watermark
   let nextUrl: string | null = buildDocketListUrl(fromIso)
   let pages = 0
+  let truncated = false
 
   try {
     while (nextUrl && pages < MAX_PAGES) {
-      if (pages > 0) await new Promise((r) => setTimeout(r, PAGE_DELAY_MS))
+      if (pages > 0) await new Promise((r) => setTimeout(r, CL_MIN_INTERVAL_MS))
       pages++
 
       const page = await fetchDocketPage(nextUrl)
@@ -112,16 +118,24 @@ export async function runCourtsIngest(): Promise<CourtsIngestResult> {
 
       if (stopPaging) break
       nextUrl = page.next
+      if (nextUrl && pages >= MAX_PAGES) truncated = true
     }
 
     await supabase
       .from('job_log')
       .update({
         status: 'done',
-        detail: { watermark: maxDateModified, written, skippedDockets },
+        detail: {
+          watermark: maxDateModified,
+          written,
+          skippedDockets,
+          pages,
+          ...(truncated ? { truncated: true } : {}),
+        },
       })
       .eq('job_key', jobKey)
   } catch (err) {
+    // SPEC §5: on 429 abort without advancing watermark (failed detail has no watermark).
     await supabase
       .from('job_log')
       .update({ status: 'failed', detail: { error: String(err) } })
