@@ -7,12 +7,12 @@ const JOB_PREFIX = 'ingest:courts:'
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 /**
  * Free-tier CourtListener: 5 req/min, 50/hr, 125/day (SPEC / DATA_SOURCES).
- * Cap pages so one hourly run cannot exhaust the hour budget even on catch-up.
- * With 13s pacing, ~8 pages stays under maxDuration=300 with upsert headroom.
+ * Keep runs short: sequential card upserts dominate wall time on catch-up.
+ * Next hour continues from the advanced watermark.
  */
-const MAX_PAGES = 8
-const WALL_CLOCK_BUDGET_MS = 270_000
-const MAX_DOCKETS_PER_RUN = 400
+const MAX_PAGES = 3
+const WALL_CLOCK_BUDGET_MS = 240_000
+const MAX_DOCKETS_PER_RUN = 60
 
 function currentIsoHour(): string {
   return new Date().toISOString().slice(0, 13)
