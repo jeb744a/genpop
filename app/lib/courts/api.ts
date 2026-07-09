@@ -52,7 +52,8 @@ async function fetchCL<T>(url: string, retried = false): Promise<T> {
 export function buildDocketListUrl(watermarkMinus1h: string): string {
   const params = new URLSearchParams({
     court__jurisdiction: 'F',
-    order_by: '-date_modified',
+    // Ascending so truncated catch-up advances the watermark through the backlog.
+    order_by: 'date_modified',
     date_modified__gte: watermarkMinus1h,
     fields: DOCKET_FIELDS,
     page_size: '100',

@@ -70,8 +70,9 @@ async function getStoredHashes(
 
 async function processState(
   state: string,
-  supabase: ReturnType<typeof createAdminClient>
-): Promise<{ written: number; skipped: number; failed: number }> {
+  supabase: ReturnType<typeof createAdminClient>,
+  deadlineMs: number
+): Promise<{ written: number; skipped: number; failed: number; truncated: boolean }> {
   // 1. Resolve the active session for this state.
   const sessionRes = await getSessionList(state)
   await delay(CALL_DELAY_MS)
@@ -79,7 +80,7 @@ async function processState(
   const sessionId = pickActiveSession(sessionRes.sessions)
   if (!sessionId) {
     console.warn(`[legiscan] no active session for ${state}`)
-    return { written: 0, skipped: 0, failed: 0 }
+    return { written: 0, skipped: 0, failed: 0, truncated: false }
   }
 
   // 2. Get the full masterlist for this session in one call.
@@ -92,7 +93,7 @@ async function processState(
     MasterListItem,
   ][]
 
-  if (billEntries.length === 0) return { written: 0, skipped: 0, failed: 0 }
+  if (billEntries.length === 0) return { written: 0, skipped: 0, failed: 0, truncated: false }
 
   // 4. Fetch stored change_hashes for this state in one DB query.
   const storedHashes = await getStoredHashes(supabase, state)
@@ -100,8 +101,14 @@ async function processState(
   let written = 0
   let skipped = 0
   let failed = 0
+  let truncated = false
 
   for (const [billIdStr, item] of billEntries) {
+    if (Date.now() > deadlineMs) {
+      truncated = true
+      break
+    }
+
     const externalId = billIdStr
     const storedHash = storedHashes.get(externalId)
 
@@ -132,7 +139,7 @@ async function processState(
     }
   }
 
-  return { written, skipped, failed }
+  return { written, skipped, failed, truncated }
 }
 
 export async function runLegiscanIngest(): Promise<LegiscanIngestResult> {
@@ -179,19 +186,25 @@ export async function runLegiscanIngest(): Promise<LegiscanIngestResult> {
   const statesCompleted: string[] = []
 
   try {
+    const deadlineMs = started + WALL_CLOCK_BUDGET_MS
     for (const state of planned) {
-      if (Date.now() - started > WALL_CLOCK_BUDGET_MS) {
+      if (Date.now() > deadlineMs) {
         truncated = true
         console.warn(`[legiscan] wall-clock budget hit after ${statesDone}/${planned.length} states (shard ${shard})`)
         break
       }
       try {
-        const result = await processState(state, supabase)
+        const result = await processState(state, supabase, deadlineMs)
         totalWritten += result.written
         totalSkipped += result.skipped
         failedStates += result.failed > 0 ? 1 : 0
         statesDone++
         statesCompleted.push(state)
+        if (result.truncated) {
+          truncated = true
+          console.warn(`[legiscan] truncated mid-state ${state} (shard ${shard})`)
+          break
+        }
       } catch (err) {
         console.warn(`[legiscan] failed state ${state}:`, err instanceof Error ? err.message : err)
         failedStates++

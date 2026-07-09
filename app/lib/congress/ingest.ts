@@ -6,6 +6,10 @@ import type { IngestResult } from './types'
 const JOB_PREFIX = 'ingest:congress:'
 const PAGE_SIZE = 250
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+/** Soft stop before Hobby's 300s ceiling — catch-up continues next hour via watermark. */
+const WALL_CLOCK_BUDGET_MS = 270_000
+/** ~3 API calls/bill; keep one run well under the hour quota and maxDuration. */
+const MAX_BILLS_PER_RUN = 40
 
 function currentIsoHour(): string {
   return new Date().toISOString().slice(0, 13) // "2026-06-15T18"
@@ -63,25 +67,36 @@ export async function runCongressIngest(): Promise<IngestResult> {
     new Date(Math.max(0, new Date(watermark).getTime() - 60 * 60 * 1000)).toISOString()
   )
 
+  const started = Date.now()
   let written = 0
   let skippedBills = 0
   let maxUpdateDate = watermark
   let offset = 0
   let done = false
+  let truncated = false
 
   try {
     while (!done) {
+      if (Date.now() - started > WALL_CLOCK_BUDGET_MS || written >= MAX_BILLS_PER_RUN) {
+        truncated = true
+        break
+      }
+
       const page = await fetchBillPage(fromDateTime, toDateTime, offset, PAGE_SIZE)
       const bills = page.bills ?? []
 
       if (bills.length === 0) break
 
       for (const item of bills) {
-        // Bills are sorted updateDate desc; once we hit items older than the
-        // overlap-adjusted watermark we can stop paging.
-        if (item.updateDate < watermark) {
+        if (Date.now() - started > WALL_CLOCK_BUDGET_MS || written >= MAX_BILLS_PER_RUN) {
+          truncated = true
           done = true
           break
+        }
+
+        // Ascending order: skip the 1h overlap we've already ingested, then process forward.
+        if (item.updateDate < watermark) {
+          continue
         }
 
         try {
@@ -124,11 +139,17 @@ export async function runCongressIngest(): Promise<IngestResult> {
     }
 
     // Advance watermark only to the max updateDate of successfully written bills.
+    // Truncated catch-up still marks done so the next hour continues from here.
     await supabase
       .from('job_log')
       .update({
         status: 'done',
-        detail: { watermark: maxUpdateDate, written, skippedBills },
+        detail: {
+          watermark: maxUpdateDate,
+          written,
+          skippedBills,
+          ...(truncated ? { truncated: true } : {}),
+        },
       })
       .eq('job_key', jobKey)
   } catch (err) {

@@ -49,10 +49,12 @@ export async function fetchBillPage(
   fromDateTime: string,
   toDateTime: string,
   offset: number,
-  limit = 250
+  limit = 250,
+  /** Ascending so truncated catch-up can advance the watermark safely. */
+  sort: 'updateDate asc' | 'updateDate desc' = 'updateDate asc'
 ): Promise<BillListResponse> {
   return fetchCongress<BillListResponse>('/bill', {
-    sort: 'updateDate desc',
+    sort,
     fromDateTime,
     toDateTime,
     limit: String(limit),

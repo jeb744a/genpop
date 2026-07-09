@@ -8,9 +8,11 @@ const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 /**
  * Free-tier CourtListener: 5 req/min, 50/hr, 125/day (SPEC / DATA_SOURCES).
  * Cap pages so one hourly run cannot exhaust the hour budget even on catch-up.
- * With 13s pacing, 20 pages ≈ 4+ minutes — fits maxDuration=300 with headroom.
+ * With 13s pacing, ~8 pages stays under maxDuration=300 with upsert headroom.
  */
-const MAX_PAGES = 20
+const MAX_PAGES = 8
+const WALL_CLOCK_BUDGET_MS = 270_000
+const MAX_DOCKETS_PER_RUN = 400
 
 function currentIsoHour(): string {
   return new Date().toISOString().slice(0, 13)
@@ -66,6 +68,7 @@ export async function runCourtsIngest(): Promise<CourtsIngestResult> {
   const watermark = await getWatermark(supabase)
   const fromIso = subtractHours(watermark, 1)
 
+  const started = Date.now()
   let written = 0
   let skippedDockets = 0
   let maxDateModified = watermark
@@ -75,6 +78,10 @@ export async function runCourtsIngest(): Promise<CourtsIngestResult> {
 
   try {
     while (nextUrl && pages < MAX_PAGES) {
+      if (Date.now() - started > WALL_CLOCK_BUDGET_MS || written >= MAX_DOCKETS_PER_RUN) {
+        truncated = true
+        break
+      }
       if (pages > 0) await new Promise((r) => setTimeout(r, CL_MIN_INTERVAL_MS))
       pages++
 
@@ -83,11 +90,16 @@ export async function runCourtsIngest(): Promise<CourtsIngestResult> {
 
       if (dockets.length === 0) break
 
-      let stopPaging = false
       for (const docket of dockets) {
-        if (new Date(docket.date_modified) < new Date(watermark)) {
-          stopPaging = true
+        if (Date.now() - started > WALL_CLOCK_BUDGET_MS || written >= MAX_DOCKETS_PER_RUN) {
+          truncated = true
+          nextUrl = null
           break
+        }
+
+        // Ascending order: skip the 1h overlap we've already ingested.
+        if (new Date(docket.date_modified) < new Date(watermark)) {
+          continue
         }
 
         try {
@@ -116,7 +128,7 @@ export async function runCourtsIngest(): Promise<CourtsIngestResult> {
         }
       }
 
-      if (stopPaging) break
+      if (truncated) break
       nextUrl = page.next
       if (nextUrl && pages >= MAX_PAGES) truncated = true
     }
