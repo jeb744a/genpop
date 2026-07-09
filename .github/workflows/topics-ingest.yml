@@ -1,0 +1,42 @@
+# Lazy topic tagging for non-live cards (Trending news-overlap boost).
+# Prioritizes recent last_action_at, then federal + advanced statuses.
+# Budget: card_topics feature, 60/day, ≤20/run — legiscan long-tail waits.
+#
+# Required GitHub repo secrets:
+#   CRON_SECRET  — same value as Vercel / .env.local CRON_SECRET
+#   APP_URL      — production origin, e.g. https://www.genpop.site  (no trailing slash)
+
+name: Topics backfill (every 2h)
+
+on:
+  schedule:
+    - cron: '20 */2 * * *' # :20 past every even hour (UTC)
+  workflow_dispatch: {}
+
+jobs:
+  ingest-topics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Hit /api/ingest/topics
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ] || [ -z "${APP_URL:-}" ]; then
+            echo "Missing secrets.CRON_SECRET or secrets.APP_URL"
+            exit 1
+          fi
+          url="${APP_URL%/}/api/ingest/topics"
+          echo "GET $url"
+          code=$(curl -sS --max-time 150 -o /tmp/topics-ingest.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Accept: application/json" \
+            "$url")
+          echo "HTTP $code"
+          cat /tmp/topics-ingest.json
+          echo
+          if [ "$code" != "200" ]; then
+            exit 1
+          fi

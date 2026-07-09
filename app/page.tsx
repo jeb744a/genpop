@@ -6,11 +6,12 @@ import { fetchFeedCards, PAGE_SIZE } from '@/app/lib/cards/queries'
 import type { FeedParams, SortMode } from '@/app/lib/cards/types'
 
 function parseParams(raw: Record<string, string | string[] | undefined>): FeedParams {
+  // Default landing: Trending, all branches, federal+state blended (no pre-selected filters).
   const sort = (['recent', 'trending', 'passed'] as SortMode[]).includes(
     raw.sort as SortMode
   )
     ? (raw.sort as SortMode)
-    : 'recent'
+    : 'trending'
 
   const branches =
     typeof raw.branch === 'string'
@@ -33,7 +34,8 @@ function paginationUrl(
   raw: Record<string, string | string[] | undefined>
 ): string {
   const sp = new URLSearchParams()
-  if (params.sort !== 'recent') sp.set('sort', params.sort)
+  // Persist non-default sort; trending is the default so omit it from clean URLs.
+  if (params.sort !== 'trending') sp.set('sort', params.sort)
   if (params.branches.length > 0) sp.set('branch', params.branches.join(','))
   if (params.spheres.length > 0) sp.set('sphere', params.spheres.join(','))
   if (targetPage > 1) sp.set('page', String(targetPage))
@@ -53,7 +55,7 @@ export default async function FeedPage({
 }) {
   const raw = await searchParams
   const params = parseParams(raw)
-  const { cards, hasMore } = await fetchFeedCards(params)
+  const { cards, hasMore, trendingMeta } = await fetchFeedCards(params)
 
   const linkStyle = {
     padding: '6px 18px',
@@ -110,6 +112,24 @@ export default async function FeedPage({
           gap: '10px',
         }}
       >
+        {params.sort === 'trending' && trendingMeta?.topicsUnavailable && (
+          <p
+            style={{
+              fontSize: '0.78rem',
+              color: 'var(--color-text-secondary)',
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: '8px',
+              padding: '10px 12px',
+              margin: 0,
+            }}
+          >
+            Trending ranks by national scope, status advancement, and recency.
+            News-topic overlap is inactive — government-action cards still have
+            empty <code>topics[]</code> (and there are no live news cards to
+            overlap with yet).
+          </p>
+        )}
         {cards.length === 0 ? (
           <p
             style={{

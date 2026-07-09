@@ -24,7 +24,8 @@ export default function FeedControls() {
   const router = useRouter()
   const params = useSearchParams()
 
-  const currentSort = (params.get('sort') ?? 'recent') as SortMode
+  // Default landing is Trending (all branches / both spheres blended).
+  const currentSort = (params.get('sort') ?? 'trending') as SortMode
   const currentBranches = params.get('branch')?.split(',').filter(Boolean) ?? []
   const currentSpheres = params.get('sphere')?.split(',').filter(Boolean) ?? []
 
@@ -38,7 +39,7 @@ export default function FeedControls() {
     const branches = updates.branches ?? currentBranches
     const spheres = updates.spheres ?? currentSpheres
 
-    if (sort !== 'recent') sp.set('sort', sort)
+    if (sort !== 'trending') sp.set('sort', sort)
     if (branches.length > 0) sp.set('branch', branches.join(','))
     if (spheres.length > 0) sp.set('sphere', spheres.join(','))
     // always reset to page 1 on filter change
